@@ -43,6 +43,10 @@ def create_app():
         icons_dir = os.path.join(app.root_path, "pwa", "icons")
         return send_from_directory(icons_dir, filename)
     
+    @app.route("/static/offline.html")
+    def offline():
+        return app.send_static_file("offline.html")
+    
     # Optional: CLI helper to init the DB quickly
     @app.cli.command("init-db")
     def init_db_command():
