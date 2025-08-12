@@ -1,0 +1,23 @@
+<div id="results" class="space-y-3">
+    {% if count == 0 %}
+        <div class="p-4 rounded border">No matching restaurants. Try widening your radius or removing filters</div>
+    {% else %}
+        {% for r in results %}
+            <div class="p-4 rounded border flex items-center justify-between">
+                <div>
+                    <div class="font-semibold">{{ r.name }}</div>
+                    <div class="text-sm opacity-75">
+                        {{ r.distance_km }} km |
+                        {% if r.price == 1 %}$ {% elif r.price == 2 %}$$ {% elif r.price == 3 %}$$$ {% else %}-{% endif %}
+                        | {{ r.busy }}
+                        {% if r.halal %} | Halal{% endif %}
+                    </div>
+                </div>
+                <!-- im here button goes here, if implemented-->
+            </div>
+        {% endfor %}
+    {% endif %}
+</div>
+
+<!--Markers payload for the map-->
+<script type="application/json" id="markers-json">{{ results | tojson }}</script>

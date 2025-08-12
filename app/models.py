@@ -16,6 +16,6 @@ class Restaurant(db.Model):
 class Checkin(db.Model):
     __tablename__ = "checkins"
     id = db.Column(db.Integer, primary_key=True)
-    restaurant_id = db.Column(db.Integer, db.ForeignKey("restaurants.ids"), index=True, nullable=False)
+    restaurant_id = db.Column(db.Integer, db.ForeignKey("restaurants.id"), index=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
