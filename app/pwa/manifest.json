@@ -1,0 +1,12 @@
+{
+    "name": "Fork & Filter",
+    "short_name": "ForkFilter",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#0ea5e9",
+    "icons": [
+        {"src": "/icons/banana.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+        {"src": "/icons/apple.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+    ]
+}

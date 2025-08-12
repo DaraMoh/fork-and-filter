@@ -1,60 +1,91 @@
 {% extends "base.html" %}
 {% block content %}
-    <form id="filters"
-            hx-get="/search"
-            hx-target="#results"
-            hx-swap="outerHTML"
-            hx-trigger="load, change delay:200ms">
-        <input type="hidden" name="lat" id="lat" value="32.7767">
-        <input type="hidden" name="lng" id="lng" value="-96.7970">
+  <h1 class="text-xl font-semibold p-3">Fork & Filter</h1>
 
-        <label>Radius (km)
-            <input type="number" step="0.1" name="radius_km" value="0">
-        </label>>
+  <form id="filters"
+        class="space-y-3 p-3"
+        hx-get="/search" hx-target="#results" hx-swap="outerHTML"
+        hx-trigger="load, change delay:200ms">
+    <input type="hidden" name="lat" id="lat" value="32.7767">
+    <input type="hidden" name="lng" id="lng" value="-96.7970">
 
-        <label>Menu terms (comma-separated)
-            <input type="text" name="terms" placeholder="shawarma,tacos">
-        </label>
+    <label class="block">Radius (km)
+      <input class="border p-2 rounded w-full" type="number" step="0.1" name="radius_km" value="8">
+    </label>
 
-        <label>Prices
-            <select name="prices" multiple>
-                <option value="1">$</option>
-                <option value="2">$$</option>
-                <option value="3">$$$</option>
-            </select>
-        </label>
+    <label class="block">Menu terms (comma-separated)
+      <input class="border p-2 rounded w-full" type="text" name="terms" placeholder="shawarma,tacos">
+    </label>
 
-        <label><input type="checkbox" name="halal" value="true">Halal Only</label>
+    <label class="block">Prices
+      <select class="border p-2 rounded w-full" name="prices" multiple>
+        <option value="1">$</option>
+        <option value="2">$$</option>
+        <option value="3">$$$</option>
+      </select>
+    </label>
 
-        <label>Busyness
-            <select name="busy" multiple>
-                <option>Low</option><option>Moderate</option><option>High</option>
-            </select>
-        </label>
-    </form>
+    <label class="inline-flex items-center gap-2">
+      <input type="checkbox" name="halal" value="true"> Halal only
+    </label>
 
-    <div id="map" class="h-80"></div>
-    <div id="results"></div>
-{% endblock %}
+    <label class="block">Busyness
+      <select class="border p-2 rounded w-full" name="busy" multiple>
+        <option>Low</option><option>Moderate</option><option>High</option>
+      </select>
+    </label>
 
-<button type="button" id="use-location">Use my location</button>
+    <button type="button" id="use-location" class="px-3 py-2 bg-sky-600 text-white rounded">
+      Use my location
+    </button>
+  </form>
+
+  <div id="map" class="h-80 m-3 rounded"></div>
+  <div id="results" class="m-3"></div>
+
 <script>
+    // geolocation
     document.getElementById('use-location').onclick = () => {
         if (!navigator.geolocation) return alert("Geolocation not supported");
         navigator.geolocation.getCurrentPosition(pos => {
             const { latitude, longitude } = pos.coords;
-            document.getElementById('lat').value = latitude.toFixed(6);
-            document.getElementById('lng').value = longitude.toFixed(6);
+            lat.value = latitude.toFixed(6);
+            lng.value = longitude.toFixed(6);
             document.getElementById('filters').dispatchEvent(new Event('change', {bubbles:true}));
             localStorage.setItem('ff_loc', JSON.stringify({lat: latitude, lng: longitude}));
-        });
+        }, () => alert("Couldn't get your location"));
     };
 
-    //prefull last location
+    // restore last location
     const saved= localStorage.getItem('ff_loc');
     if (saved) {
-        const {lat,lng} = JSON.parse(saved);
-        lat && (document.getElementById('lat').value = lat);
-        lng && (document.getElementById('lng').value = lng);
+        const {lat:la,lng:lo} = JSON.parse(saved);
+        if (la && lo) { lat.value = la; lng.value = lo; }
     }
+
+    // Leaflet init + marker updates
+    let map, pins = [];
+    function initMap(){
+        if (map) return;
+        map = L.map('map').setView([32.7767, -96.7970], 11);
+        L.titleLayer('https://{s}.title.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    }
+    function renderMarkers(points){
+        pins.forEach(m => m.remove()); pints = [];
+        if (!points || !points.length) return;
+        const group = [];
+        points.forEach(p => {
+            const m = L.marker([p.lat, p.lng]).addTo(map)
+            .bindPopup(`$({p.name}<br>${p.distance_km} km | ${`$`.repeat(p.price||0)} | ${p.busy}`);
+            pins.push(m); group.push(m);
+        });
+        const g = L.featureGroup(group); map.fitBounds(g.getBounds().pad(0.2));
+    }
+    initMap();
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+        if (e.target.id !== 'results') return;
+        const el = document.getElementById('markers-json');
+        if (el) renderMarkers(JSON.parse(e1.textContent));
+    });
 </script>
+{% endblock %}
