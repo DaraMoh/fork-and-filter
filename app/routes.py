@@ -1,12 +1,22 @@
-# app/routes.py
+import os, json
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, abort
+from flask import Blueprint, render_template, request, abort, make_response
 from sqlalchemy import func
 from .models import Restaurant, Checkin
 from . import db
 from .utils import haversine_km, busy_bucket, parse_menu_terms, parse_busy_levels, parse_prices, truthy
 
 bp = Blueprint("main", __name__)
+
+# in-memory throttle, might need to change to redis/DB for further prod
+_CHECKIN_THROTTLE = {}
+_COOLDOWN_MIN = int(os.getenv("CHECKIN_COOLDOWN_MINUTES", "10"))
+
+def _client_ip():
+    xf = request.headers.get("X-Forwarded-For")
+    if xf:
+        return xf.split(",")[0].strip()
+    return request.remote_addr or "unknown"
 
 @bp.route("/")
 def index():
@@ -98,11 +108,28 @@ def search():
 
 @bp.route("/checkin/<int:restaurant_id>", methods=["POST"])
 def checkin(restaurant_id):
+    # debounce by IP and rest
+    ip = _client_ip()
+    now = datetime.utcnow()
+    key = (ip, restaurant_id)
+    last = _CHECKIN_THROTTLE.get(key)
+    cooldown = timedelta(minutes=_COOLDOWN_MIN)
+
+    if last and (now - last) < cooldown:
+        items, count = build_results(request)
+        resp = make_response(render_template("_results.html", results=items, count=count))
+        mins_left = max(1,int((cooldown - (now-last)).total_seconds() // 60))
+        resp.headers["HX-Trigger"] = json.dumps({"toast": f"Already checked in. Try again in ~{mins_left} minutes."})
+        return resp, 200
+    
     # record the check-in
     r = Restaurant.query.get_or_404(restaurant_id)
     db.session.add(Checkin(restaurant_id=r.id, created_at=datetime.utcnow()))
     db.session.commit()
+    _CHECKIN_THROTTLE[key] = now
 
     # re-render with the same filters (HTMX includes the form)
     items, count = build_results()
-    return render_template("_results.html", results=items, count=count)
+    resp = make_response(render_template("_results.html", results=items, count=count))
+    resp.headers["HX-Trigger"] = json.dumps({"toast": "Checked in! Thanks!!!"})
+    return resp, 200

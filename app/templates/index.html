@@ -59,12 +59,12 @@
   const radiusInput = document.querySelector('[name="radius_km"]');
 
   function initMapOnce() {
-    if (map) return;                      // already have a map instance
+    if (map) return;
     map = L.map('map').setView([32.7767, -96.7970], 11);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-    window.__ff.map = map;                // stash globally
+    window.__ff.map = map;
   }
 
   function setUserLocation(lat, lng, radiusKm) {
@@ -147,6 +147,12 @@
     const { lat, lng } = window.__ff.userMarker.getLatLng();
     setUserLocation(lat, lng, r);
   });
+
+  document.body.addEventListener('toast', (e) => {
+    const msg = typeof e.detail === 'string' ? e.detail : (e.detail?.message || 'Done');
+    alert(msg);
+  });
+  
 })();
 </script>
 <style>#map{height:320px}</style>
