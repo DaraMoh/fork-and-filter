@@ -12,6 +12,10 @@
             | {{ r.busy }}{% if r.halal %} | Halal{% endif %}
           </div>
         </div>
+
+        <button class="px-3 py-2 text-sm bg-emerald-600 text-white rounded" hex-post="/checkin/{{ r.id }}" hx-target="#results" hx-swap="outerHTML" hx-include="#filters">
+          I'm here
+        </button>
       </div>
     {% endfor %}
   {% endif %}

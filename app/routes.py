@@ -1,3 +1,4 @@
+# app/routes.py
 from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, abort
 from sqlalchemy import func
@@ -11,22 +12,36 @@ bp = Blueprint("main", __name__)
 def index():
     return render_template("index.html")
 
-@bp.route("/search")
-def search():
+def _get(name, default=None):
+    """Read a single value from either query string or form (HTMX uses POST)."""
+    return request.values.get(name, default)
+
+def _getlist(name):
+    """Read a list (works for ?a=1&a=2 or multi-select POST)."""
+    return request.values.getlist(name)
+
+def build_results():
     # --- Parse inputs (defaults: Dallas center) ---
     try:
-        lat = float(request.args.get("lat", "32.7767"))
-        lng = float(request.args.get("lng", "-96.7970"))
-        radius_km = float(request.args.get("radius_km", "5"))
+        lat = float(_get("lat", "32.7767"))
+        lng = float(_get("lng", "-96.7970"))
+        radius_km = float(_get("radius_km", "5"))
     except ValueError:
         abort(400, "Invalid lat/lng/radius")
 
-    terms = parse_menu_terms(request.args.get("terms", ""))
-    prices = parse_prices(request.args.get("prices", ""))
-    halal_only = truthy(request.args.get("halal", "false"))
-    busy_filter = parse_busy_levels(request.args.get("busy", ""))  # set()
+    terms = parse_menu_terms(_get("terms", ""))
 
-    # --- Base query: apply structured filters first ---
+    # prices may come as multiple values or CSV; handle both
+    prices_vals = _getlist("prices")
+    if prices_vals:
+        prices = [int(p) for p in prices_vals if str(p).isdigit()]
+    else:
+        prices = parse_prices(_get("prices", ""))
+
+    halal_only = truthy(_get("halal", "false"))
+    busy_filter = parse_busy_levels(_get("busy", ""))  # set() of {"Low","Moderate","High"}
+
+    # --- Base query ---
     q = db.session.query(Restaurant)
     if prices:
         q = q.filter(Restaurant.price_tier.in_(prices))
@@ -38,7 +53,7 @@ def search():
 
     restaurants = q.all()
 
-    # --- Recent check-ins (last 60 min) -> counts dict ---
+    # --- Recent check-ins (last 60 min) ---
     recent_cutoff = datetime.utcnow() - timedelta(minutes=60)
     counts_rows = (
         db.session.query(Checkin.restaurant_id, func.count(Checkin.id))
@@ -48,7 +63,7 @@ def search():
     )
     counts = {rid: cnt for (rid, cnt) in counts_rows}
 
-    # --- Distance filter + busyness bucket ---
+    # --- Distance + busyness ---
     items = []
     for r in restaurants:
         dist = haversine_km(lat, lng, r.lat, r.lng)
@@ -71,9 +86,23 @@ def search():
             "busy": level,
         })
 
-    # --- Sort by distance asc, then busyness (High > Low) ---
+    # sort: nearest first, then High > Moderate > Low
     rank = {"High": 0, "Moderate": 1, "Low": 2}
     items.sort(key=lambda x: (x["distance_km"], rank.get(x["busy"], 3)))
-    items = items[:100]
+    return items, len(items)
 
-    return render_template("_results.html", results=items, count=len(items))
+@bp.route("/search", methods=["GET"])
+def search():
+    items, count = build_results()
+    return render_template("_results.html", results=items, count=count)
+
+@bp.route("/checkin/<int:restaurant_id>", methods=["POST"])
+def checkin(restaurant_id):
+    # record the check-in
+    r = Restaurant.query.get_or_404(restaurant_id)
+    db.session.add(Checkin(restaurant_id=r.id, created_at=datetime.utcnow()))
+    db.session.commit()
+
+    # re-render with the same filters (HTMX includes the form)
+    items, count = build_results()
+    return render_template("_results.html", results=items, count=count)
