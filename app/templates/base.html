@@ -7,9 +7,12 @@
 
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0ea5e9">
+  <!-- Chrome now prefers this; keep the Apple one too for iOS -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/static/favicon.ico">
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -24,32 +27,7 @@
       navigator.serviceWorker.register("/service-worker.js");
     }
   </script>
+
+  {% block scripts %}{% endblock %}
 </body>
 </html>
-
-<script>
-    let map, markers = [];
-    function initMap() {
-        if (map) return;
-        map = L.map('map').setView([32.7767, -96.7970], 11);
-        L.titleLayer('https://{s}.title.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-    }
-    function renderMarkers(points) {
-        markers.forEach(m => m.remove()); markers = [];
-        if (!points || !points.length) return;
-        const group = [];
-        points.forEach(p => {
-            const m = L.marker([p.lat, p.lng]).addTo(map).bindPopup(`${p.name}<br>${p.distance_km} km | ${'$'.repeat(p.price||0)} | ${p.busy}`);
-            markers.push(m); group.push(m);
-        });
-        const g = L.featureGroup(group); map.fitBounds(g.getBounds().pad(0.2));
-    }
-    initMap();
-
-    // after HTMX swaps in results, read markers JSON
-    document.body.addEventListener('htmx:afterSwap', (e) => {
-        if (e.target.id !== 'results') return;
-        const el = document.getElementById('markers.json');
-        if (el) renderMarkers(JSON.parse(el.textContent));
-    });
-</script>

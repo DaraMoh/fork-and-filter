@@ -1,4 +1,4 @@
-const CACHE = "ff-v2";
+const CACHE = "ff-v5";
 const STATIC_ASSETS = [
     "../icons/apple.png",
     "../icons/banana.png", 
@@ -7,11 +7,15 @@ const STATIC_ASSETS = [
     ];
 
 self.addEventListener("install", (e) => {
-    e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC_ASSETS)));
+    e.waitUntil(
+        caches.open(CACHE).then(async (c) => { 
+            try { await c.addAll(STATIC_ASSETS); } catch (e) { } 
+        })
+    );
     self.skipWaiting();
 });
 self.addEventListener("activate", (e) => {
-    e.waitUntil(caches.keys().thens(keys => Promise.all(keys.filters(k => k !== CACHE).map(k => caches.deletes(k)))));
+    e.waitUntil(caches.keys().then(keys => Promise.all(keys.filters(k => k !== CACHE).map(k => caches.deletes(k)))));
     self.clients.claim();
 });
 self.addEventListener("fetch", (e) => {

@@ -44,66 +44,113 @@
   <div id="results" class="m-3"></div>
 
 <script>
-  // --- geolocation ---
-  const latInput = document.getElementById('lat');
-  const lngInput = document.getElementById('lng');
+(() => {
+  // --- shared state across reloads
+  window.__ff = window.__ff || {};
+  let map = window.__ff.map || null;
+  let pins = [];
+  let userMarker = window.__ff.userMarker || null;
+  let radiusCircle = window.__ff.radiusCircle || null;
 
+  // DOM refs
+  const filtersForm = document.getElementById('filters');
+  const latInput    = document.getElementById('lat');
+  const lngInput    = document.getElementById('lng');
+  const radiusInput = document.querySelector('[name="radius_km"]');
+
+  function initMapOnce() {
+    if (map) return;                      // already have a map instance
+    map = L.map('map').setView([32.7767, -96.7970], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    window.__ff.map = map;                // stash globally
+  }
+
+  function setUserLocation(lat, lng, radiusKm) {
+    initMapOnce();
+    if (userMarker) userMarker.remove();
+    if (radiusCircle) radiusCircle.remove();
+
+    userMarker = L.marker([lat, lng], { title: "You are here" }).addTo(map);
+    if (radiusKm && radiusKm > 0) {
+      radiusCircle = L.circle([lat, lng], { radius: radiusKm * 1000 }).addTo(map);
+    }
+    window.__ff.userMarker = userMarker;
+    window.__ff.radiusCircle = radiusCircle;
+  }
+
+  function renderMarkers(points) {
+    initMapOnce();
+    pins.forEach(m => m.remove()); pins = [];
+
+    const layers = [];
+    if (points && points.length) {
+      points.forEach(p => {
+        const dollars = '$'.repeat(p.price || 0);
+        const m = L.marker([p.lat, p.lng]).addTo(map)
+          .bindPopup(`${p.name}<br>${p.distance_km} km | ${dollars} | ${p.busy}`);
+        pins.push(m); layers.push(m);
+      });
+    }
+    if (window.__ff.userMarker)  layers.push(window.__ff.userMarker);
+    if (window.__ff.radiusCircle) layers.push(window.__ff.radiusCircle);
+
+    if (layers.length) {
+      const fg = L.featureGroup(layers);
+      map.fitBounds(fg.getBounds().pad(0.2));
+    } else {
+      map.invalidateSize();
+    }
+  }
+
+  // lifecycle
+  window.addEventListener('DOMContentLoaded', () => {
+    initMapOnce();
+    const saved = localStorage.getItem('ff_loc');
+    if (saved) {
+      const { lat: la, lng: lo } = JSON.parse(saved);
+      if (la && lo) {
+        latInput.value = la; lngInput.value = lo;
+        setUserLocation(Number(la), Number(lo), Number(radiusInput.value || 0));
+      }
+    }
+  });
+  window.addEventListener('pageshow', () => { if (map) map.invalidateSize(); });
+  document.body.addEventListener('htmx:afterSettle', () => { if (map) map.invalidateSize(); });
+
+  // AFTER SWAP: read markers from data-attribute (HTMX-safe)
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.target.id !== 'results') return;
+    const raw = e.target.getAttribute('data-markers') || "[]";
+    const points = JSON.parse(raw);
+    renderMarkers(points);
+});
+
+  // geolocation
   document.getElementById('use-location').onclick = () => {
     if (!navigator.geolocation) return alert("Geolocation not supported");
     navigator.geolocation.getCurrentPosition(pos => {
       const { latitude, longitude } = pos.coords;
       latInput.value = latitude.toFixed(6);
       lngInput.value = longitude.toFixed(6);
-      document.getElementById('filters').dispatchEvent(new Event('change', { bubbles: true }));
+      setUserLocation(latitude, longitude, Number(radiusInput.value || 0));
+      filtersForm.dispatchEvent(new Event('change', { bubbles: true }));
       localStorage.setItem('ff_loc', JSON.stringify({ lat: latitude, lng: longitude }));
     }, () => alert("Couldn't get your location"));
   };
 
-  // restore last location
-  const saved = localStorage.getItem('ff_loc');
-  if (saved) {
-    const { lat: la, lng: lo } = JSON.parse(saved);
-    if (la && lo) { latInput.value = la; lngInput.value = lo; }
-  }
-
-  // --- Leaflet init + marker updates ---
-  let map, pins = [];
-
-  function initMap() {
-    if (map) return;
-    map = L.map('map').setView([32.7767, -96.7970], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-  }
-
-  window.addEventListener('DOMContentLoaded', initMap);
-  window.addEventListener('pageshow', () => { if (map) map.invalidateSize(); });
-  document.body.addEventListener('htmx:afterSettle', () => { if (map) map.invalidateSize(); });
-
-  function renderMarkers(points) {
-    pins.forEach(m => m.remove()); pins = [];
-    if (!points || !points.length) return;
-
-    const layers = [];
-    points.forEach(p => {
-      const dollars = '$'.repeat(p.price || 0);
-      const m = L.marker([p.lat, p.lng]).addTo(map)
-        .bindPopup(`${p.name}<br>${p.distance_km} km | ${dollars} | ${p.busy}`);
-      pins.push(m); layers.push(m);
-    });
-    const g = L.featureGroup(layers); map.fitBounds(g.getBounds().pad(0.2));
-  }
-
-  // read markers after each results swap
-  document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.target.id !== 'results') return;
-    const el = document.getElementById('markers-json');
-    if (el) renderMarkers(JSON.parse(el.textContent));
-    if (map) map.invalidateSize();
+  // radius updates ring
+  radiusInput.addEventListener('change', () => {
+    if (!window.__ff.userMarker) return;
+    const r = Number(radiusInput.value || 0);
+    const { lat, lng } = window.__ff.userMarker.getLatLng();
+    setUserLocation(lat, lng, r);
   });
+})();
 </script>
+<style>#map{height:320px}</style>
+
+
+
 {% endblock %}
-
-
-<style>#map { height: 320px; }</style>
