@@ -44,48 +44,66 @@
   <div id="results" class="m-3"></div>
 
 <script>
-    // geolocation
-    document.getElementById('use-location').onclick = () => {
-        if (!navigator.geolocation) return alert("Geolocation not supported");
-        navigator.geolocation.getCurrentPosition(pos => {
-            const { latitude, longitude } = pos.coords;
-            lat.value = latitude.toFixed(6);
-            lng.value = longitude.toFixed(6);
-            document.getElementById('filters').dispatchEvent(new Event('change', {bubbles:true}));
-            localStorage.setItem('ff_loc', JSON.stringify({lat: latitude, lng: longitude}));
-        }, () => alert("Couldn't get your location"));
-    };
+  // --- geolocation ---
+  const latInput = document.getElementById('lat');
+  const lngInput = document.getElementById('lng');
 
-    // restore last location
-    const saved= localStorage.getItem('ff_loc');
-    if (saved) {
-        const {lat:la,lng:lo} = JSON.parse(saved);
-        if (la && lo) { lat.value = la; lng.value = lo; }
-    }
+  document.getElementById('use-location').onclick = () => {
+    if (!navigator.geolocation) return alert("Geolocation not supported");
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      latInput.value = latitude.toFixed(6);
+      lngInput.value = longitude.toFixed(6);
+      document.getElementById('filters').dispatchEvent(new Event('change', { bubbles: true }));
+      localStorage.setItem('ff_loc', JSON.stringify({ lat: latitude, lng: longitude }));
+    }, () => alert("Couldn't get your location"));
+  };
 
-    // Leaflet init + marker updates
-    let map, pins = [];
-    function initMap(){
-        if (map) return;
-        map = L.map('map').setView([32.7767, -96.7970], 11);
-        L.titleLayer('https://{s}.title.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-    }
-    function renderMarkers(points){
-        pins.forEach(m => m.remove()); pints = [];
-        if (!points || !points.length) return;
-        const group = [];
-        points.forEach(p => {
-            const m = L.marker([p.lat, p.lng]).addTo(map)
-            .bindPopup(`$({p.name}<br>${p.distance_km} km | ${`$`.repeat(p.price||0)} | ${p.busy}`);
-            pins.push(m); group.push(m);
-        });
-        const g = L.featureGroup(group); map.fitBounds(g.getBounds().pad(0.2));
-    }
-    initMap();
-    document.body.addEventListener('htmx:afterSwap', (e) => {
-        if (e.target.id !== 'results') return;
-        const el = document.getElementById('markers-json');
-        if (el) renderMarkers(JSON.parse(e1.textContent));
+  // restore last location
+  const saved = localStorage.getItem('ff_loc');
+  if (saved) {
+    const { lat: la, lng: lo } = JSON.parse(saved);
+    if (la && lo) { latInput.value = la; lngInput.value = lo; }
+  }
+
+  // --- Leaflet init + marker updates ---
+  let map, pins = [];
+
+  function initMap() {
+    if (map) return;
+    map = L.map('map').setView([32.7767, -96.7970], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+  }
+
+  window.addEventListener('DOMContentLoaded', initMap);
+  window.addEventListener('pageshow', () => { if (map) map.invalidateSize(); });
+  document.body.addEventListener('htmx:afterSettle', () => { if (map) map.invalidateSize(); });
+
+  function renderMarkers(points) {
+    pins.forEach(m => m.remove()); pins = [];
+    if (!points || !points.length) return;
+
+    const layers = [];
+    points.forEach(p => {
+      const dollars = '$'.repeat(p.price || 0);
+      const m = L.marker([p.lat, p.lng]).addTo(map)
+        .bindPopup(`${p.name}<br>${p.distance_km} km | ${dollars} | ${p.busy}`);
+      pins.push(m); layers.push(m);
     });
+    const g = L.featureGroup(layers); map.fitBounds(g.getBounds().pad(0.2));
+  }
+
+  // read markers after each results swap
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    if (e.target.id !== 'results') return;
+    const el = document.getElementById('markers-json');
+    if (el) renderMarkers(JSON.parse(el.textContent));
+    if (map) map.invalidateSize();
+  });
 </script>
 {% endblock %}
+
+
+<style>#map { height: 320px; }</style>
