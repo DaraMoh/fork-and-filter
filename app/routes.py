@@ -1,7 +1,8 @@
 import os, json
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, abort, make_response
+from flask import Blueprint, render_template, request, abort, make_response, current_app
 from sqlalchemy import func
+from .services.osm_enrich import enrich_from_osm
 from .models import Restaurant, Checkin
 from . import db
 from .utils import haversine_km, busy_bucket, parse_menu_terms, parse_busy_levels, parse_prices, truthy
@@ -50,6 +51,14 @@ def build_results():
 
     halal_only = truthy(_get("halal", "false"))
     busy_filter = parse_busy_levels(_get("busy", ""))  # set() of {"Low","Moderate","High"}
+
+    enrich = request.args.get("enrich", "0") == "1"
+    if enrich:
+        try:
+            a,u,total = enrich_from_osm(lat, lng, radius_km, terms_csv=request.args.get("terms",""), ttl=3600, limit=60)
+            current_app.logger.info(f"OSM enrich  +{a}/{u} from {total}")
+        except Exception as e:
+            current_app.logger.warning(f"OSM enrich failed: {e}")
 
     # --- Base query ---
     q = db.session.query(Restaurant)

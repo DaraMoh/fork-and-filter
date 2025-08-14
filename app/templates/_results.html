@@ -17,6 +17,12 @@
           I'm here
         </button>
       </div>
+      <div class="mt-3">
+        <button type="button" class="px-3 py-2 rounded bg-emerald-600 text-white" hx-get="/search" hx-include="#filters" hx-vals='{"enrich":"1"}' hx-target="#results" hx-swap="outerHTML" hx-indicator="#loading">
+          Load more nearby (OpenStreetMap)
+        </button>
+        <span id="loading" class="htmx-indicator ml-2 text-sm opacit-70">Loadiing...</span>
+      </div>
     {% endfor %}
   {% endif %}
 </div>
