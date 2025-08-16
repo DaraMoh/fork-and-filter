@@ -13,6 +13,14 @@ class Restaurant(db.Model):
     neighborhood = db.Column(db.String(120))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    # FOR OSM
+    description = db.Column(db.Text)
+    website = db.Column(db.String(255))
+    phone = db.Column(db.String(50))
+    opening_hours = db.Column(db.String(120))
+    source = db.Column(db.String(32))
+    external_id = db.Column(db.String(80))
+
 class Checkin(db.Model):
     __tablename__ = "checkins"
     id = db.Column(db.Integer, primary_key=True)

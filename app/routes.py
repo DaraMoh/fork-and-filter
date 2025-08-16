@@ -1,144 +1,160 @@
-import os, json
+# app/routes.py
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, request, abort, make_response, current_app
+from flask import Blueprint, render_template, request, abort, current_app
 from sqlalchemy import func
-from .services.osm_enrich import enrich_from_osm
 from .models import Restaurant, Checkin
 from . import db
-from .utils import haversine_km, busy_bucket, parse_menu_terms, parse_busy_levels, parse_prices, truthy
+from .utils import (
+    haversine_km,
+    busy_bucket,
+    parse_menu_terms,
+    parse_busy_levels,
+    parse_prices,
+    truthy,
+)
+from .services.osm_enrich import enrich_from_osm
 
 bp = Blueprint("main", __name__)
 
-# in-memory throttle, might need to change to redis/DB for further prod
-_CHECKIN_THROTTLE = {}
-_COOLDOWN_MIN = int(os.getenv("CHECKIN_COOLDOWN_MINUTES", "10"))
-
-def _client_ip():
-    xf = request.headers.get("X-Forwarded-For")
-    if xf:
-        return xf.split(",")[0].strip()
-    return request.remote_addr or "unknown"
 
 @bp.route("/")
 def index():
     return render_template("index.html")
 
-def _get(name, default=None):
-    """Read a single value from either query string or form (HTMX uses POST)."""
-    return request.values.get(name, default)
 
-def _getlist(name):
-    """Read a list (works for ?a=1&a=2 or multi-select POST)."""
-    return request.values.getlist(name)
-
-def build_results():
-    # --- Parse inputs (defaults: Dallas center) ---
+@bp.route("/search")
+def search():
+    # ---- Parse inputs (defaults: Dallas) ----
     try:
-        lat = float(_get("lat", "32.7767"))
-        lng = float(_get("lng", "-96.7970"))
-        radius_km = float(_get("radius_km", "5"))
+        lat = float(request.args.get("lat", "32.7767"))
+        lng = float(request.args.get("lng", "-96.7970"))
+        radius_km = float(request.args.get("radius_km", "5"))
     except ValueError:
         abort(400, "Invalid lat/lng/radius")
 
-    terms = parse_menu_terms(_get("terms", ""))
+    terms_str = request.args.get("terms", "")
+    terms = parse_menu_terms(terms_str)
+    prices = parse_prices(request.args.get("prices", ""))
+    halal_only = truthy(request.args.get("halal", "false"))
+    busy_filter = parse_busy_levels(request.args.get("busy", ""))  # {"Low","Moderate","High"}
 
-    # prices may come as multiple values or CSV; handle both
-    prices_vals = _getlist("prices")
-    if prices_vals:
-        prices = [int(p) for p in prices_vals if str(p).isdigit()]
-    else:
-        prices = parse_prices(_get("prices", ""))
-
-    halal_only = truthy(_get("halal", "false"))
-    busy_filter = parse_busy_levels(_get("busy", ""))  # set() of {"Low","Moderate","High"}
-
-    enrich = request.args.get("enrich", "0") == "1"
-    if enrich:
+    # ---- Optional: pull fresh OSM data BEFORE querying DB ----
+    # Triggered when the UI passes ?enrich=1 (e.g., your "Load more nearby" button)
+    if request.args.get("enrich") == "1":
         try:
-            a,u,total = enrich_from_osm(lat, lng, radius_km, terms_csv=request.args.get("terms",""), ttl=3600, limit=60)
-            current_app.logger.info(f"OSM enrich  +{a}/{u} from {total}")
+            enrich_limit = int(request.args.get("enrich_limit", "120"))
+        except ValueError:
+            enrich_limit = 120
+        try:
+            added, updated, total = enrich_from_osm(
+                lat=lat,
+                lng=lng,
+                radius_km=radius_km,
+                terms_csv=terms_str,
+                ttl=3600,            # 1h cache
+                limit=enrich_limit,  # allow larger pulls
+            )
+            current_app.logger.info(f"OSM enrich: +{added} new, {updated} updated (from {total})")
         except Exception as e:
             current_app.logger.warning(f"OSM enrich failed: {e}")
 
-    # --- Base query ---
-    q = db.session.query(Restaurant)
-    if prices:
-        q = q.filter(Restaurant.price_tier.in_(prices))
-    if halal_only:
-        q = q.filter(Restaurant.halal.is_(True))
-    if terms:
-        for t in terms:
-            q = q.filter(Restaurant.menu.ilike(f"%{t}%"))
+    # ---- Build results (helper closes over inputs above) ----
+    def build_results():
+        # Base DB filters
+        q = db.session.query(Restaurant)
+        if prices:
+            q = q.filter(Restaurant.price_tier.in_(prices))
+        if halal_only:
+            q = q.filter(Restaurant.halal.is_(True))
+        if terms:
+            for t in terms:
+                q = q.filter(Restaurant.menu.ilike(f"%{t}%"))
 
-    restaurants = q.all()
+        restaurants = q.all()
 
-    # --- Recent check-ins (last 60 min) ---
-    recent_cutoff = datetime.utcnow() - timedelta(minutes=60)
-    counts_rows = (
-        db.session.query(Checkin.restaurant_id, func.count(Checkin.id))
-        .filter(Checkin.created_at >= recent_cutoff)
-        .group_by(Checkin.restaurant_id)
-        .all()
+        # Recent check-ins (last 60 min) -> counts dict
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=60)
+        counts_rows = (
+            db.session.query(Checkin.restaurant_id, func.count(Checkin.id))
+            .filter(Checkin.created_at >= recent_cutoff)
+            .group_by(Checkin.restaurant_id)
+            .all()
+        )
+        counts = {rid: cnt for (rid, cnt) in counts_rows}
+
+        # Distance + busy bucket + optional busy filter
+        items_full = []
+        for r in restaurants:
+            try:
+                dist = haversine_km(lat, lng, r.lat, r.lng)
+            except Exception:
+                continue
+            if dist > radius_km:
+                continue
+
+            busy_count = counts.get(r.id, 0)
+            level = busy_bucket(busy_count)
+            if busy_filter and level not in busy_filter:
+                continue
+
+            items_full.append(
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "lat": r.lat,
+                    "lng": r.lng,
+                    "distance_km": round(dist, 2),
+                    "price": r.price_tier or 0,
+                    "halal": bool(r.halal),
+                    "busy": level,
+                    # optional richer fields if present
+                    "description": getattr(r, "description", None),
+                    "website": getattr(r, "website", None),
+                }
+            )
+
+        # Sort by (distance asc, then busy desc High>Low)
+        rank = {"High": 0, "Moderate": 1, "Low": 2}
+        items_full.sort(key=lambda x: (x["distance_km"], rank.get(x["busy"], 3)))
+        return items_full
+
+    items_full = build_results()
+
+    # ---- Paging ----
+    try:
+        page = max(int(request.args.get("page", "1")), 1)
+    except ValueError:
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", "50"))
+    except ValueError:
+        per_page = 50
+    # clamp per_page to a sane range
+    per_page = min(max(per_page, 1), 200)
+
+    start = (page - 1) * per_page
+    end = start + per_page
+    items = items_full[start:end]
+    has_more = end < len(items_full)
+
+    return render_template(
+        "_results.html",
+        results=items,
+        count=len(items),
+        page=page,
+        per_page=per_page,
+        has_more=has_more,
+        total=len(items_full),
     )
-    counts = {rid: cnt for (rid, cnt) in counts_rows}
 
-    # --- Distance + busyness ---
-    items = []
-    for r in restaurants:
-        dist = haversine_km(lat, lng, r.lat, r.lng)
-        if dist > radius_km:
-            continue
 
-        busy_count = counts.get(r.id, 0)
-        level = busy_bucket(busy_count)
-        if busy_filter and level not in busy_filter:
-            continue
-
-        items.append({
-            "id": r.id,
-            "name": r.name,
-            "lat": r.lat,
-            "lng": r.lng,
-            "distance_km": round(dist, 2),
-            "price": r.price_tier or 0,
-            "halal": bool(r.halal),
-            "busy": level,
-        })
-
-    # sort: nearest first, then High > Moderate > Low
-    rank = {"High": 0, "Moderate": 1, "Low": 2}
-    items.sort(key=lambda x: (x["distance_km"], rank.get(x["busy"], 3)))
-    return items, len(items)
-
-@bp.route("/search", methods=["GET"])
-def search():
-    items, count = build_results()
-    return render_template("_results.html", results=items, count=count)
-
-@bp.route("/checkin/<int:restaurant_id>", methods=["POST"])
-def checkin(restaurant_id):
-    # debounce by IP and rest
-    ip = _client_ip()
-    now = datetime.utcnow()
-    key = (ip, restaurant_id)
-    last = _CHECKIN_THROTTLE.get(key)
-    cooldown = timedelta(minutes=_COOLDOWN_MIN)
-
-    if last and (now - last) < cooldown:
-        items, count = build_results(request)
-        resp = make_response(render_template("_results.html", results=items, count=count))
-        mins_left = max(1,int((cooldown - (now-last)).total_seconds() // 60))
-        resp.headers["HX-Trigger"] = json.dumps({"toast": f"Already checked in. Try again in ~{mins_left} minutes."})
-        return resp, 200
-    
-    # record the check-in
-    r = Restaurant.query.get_or_404(restaurant_id)
-    db.session.add(Checkin(restaurant_id=r.id, created_at=datetime.utcnow()))
+# ---- Minimal check-in endpoint (debounced on the client) ----
+@bp.post("/checkin")
+def checkin():
+    rid = request.form.get("restaurant_id") or request.json.get("restaurant_id")
+    if not rid:
+        abort(400, "restaurant_id required")
+    # Optional: clamp spam in server-side by ignoring duplicates within N seconds per IP+rid
+    db.session.add(Checkin(restaurant_id=int(rid), created_at=datetime.utcnow()))
     db.session.commit()
-    _CHECKIN_THROTTLE[key] = now
-
-    # re-render with the same filters (HTMX includes the form)
-    items, count = build_results()
-    resp = make_response(render_template("_results.html", results=items, count=count))
-    resp.headers["HX-Trigger"] = json.dumps({"toast": "Checked in! Thanks!!!"})
-    return resp, 200
+    return ("", 204)

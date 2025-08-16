@@ -154,30 +154,59 @@
         radiusCircle = L.circle([lat, lng], { radius: radiusKm * 1000 }).addTo(map);
       }
     }
-    function renderMarkers(points) {
+    window.ff_all_points = window.ff_all_points || [];
+    window.ff_marker_by_id = {};
+
+    function renderMarkers(points){
       pins.forEach(m => m.remove()); pins = [];
+      window.ff_marker_by_id = {};
+
       if (!points || !points.length) return;
+
       const layers = [];
       points.forEach(p => {
+        const dollars = '$'.repeat(p.price || 0);
         const m = L.marker([p.lat, p.lng]).addTo(map)
-          .bindPopup(`${p.name}<br>${p.distance_km} km | ${'$'.repeat(p.price||0)} | ${p.busy}`);
+          .bindPopup(`${p.name}<br>${p.distance_km} km | ${dollars} | ${p.busy}`);
         pins.push(m); layers.push(m);
+        if (p.id != null) window.ff_marker_by_id[String(p.id)] = m;
       });
+
       if (userMarker) layers.push(userMarker);
       if (radiusCircle) layers.push(radiusCircle);
-      const g = L.featureGroup(layers); map.fitBounds(g.getBounds().pad(0.2));
+
+      const g = L.featureGroup(layers);
+      map.fitBounds(g.getBounds().pad(0.2));
     }
 
+
     // --- HTMX: update markers after results load
+    window.ff_all_points = [];
+
     document.body.addEventListener('htmx:afterSwap', (e) => {
       if (e.target.id !== 'results') return;
-      if (!isMapVisible()) return;
+
       const el = document.getElementById('markers-json');
+      const page = parseInt(e.target.dataset.page || '1', 10);
+
+      let newPoints = [];
       if (el) {
-        try { renderMarkers(JSON.parse(el.textContent)); } catch {}
+        try { newPoints = JSON.parse(el.textContent || '[]'); } catch {}
+      }
+
+      if (page <= 1) {
+        window.ff_all_points = newPoints;
+      } else {
+        window.ff_all_points = (window.ff_all_points || []).concat(newPoints);
+      }
+
+      // Only redraw markers if the map is visible in your mode
+      if (typeof isMapVisible === 'function' ? isMapVisible() : true) {
+        renderMarkers(window.ff_all_points);
         if (map) map.invalidateSize();
       }
     });
+
 
     // --- view control
     function isMapVisible() { return !mapPane.classList.contains('hidden'); }
@@ -235,6 +264,68 @@
         if (!Number.isNaN(la) && !Number.isNaN(lo)) setUserLocation(la, lo, r);
       }
     }
+
+    function ensureMapVisibleForFocus() {
+      // If you have modes, reveal the map (prefer 'both' if you added it)
+      if (typeof isMapVisible === 'function' && !isMapVisible()) {
+        if (typeof setMode === 'function') setMode('both');
+      }
+      initMapOnce();
+    }
+
+    function highlightResultRow(id) {
+      document.querySelectorAll('.result-row').forEach(el => {
+        el.classList.remove('ring', 'ring-sky-500', 'bg-sky-50');
+      });
+      const el = document.querySelector(`.result-row[data-id="${id}"]`);
+      if (el) el.classList.add('ring', 'ring-sky-500', 'bg-sky-50');
+    }
+
+    function focusPlaceById(id, fallbackLat, fallbackLng) {
+      ensureMapVisibleForFocus();
+
+      const m = window.ff_marker_by_id[String(id)];
+      if (m) {
+        const ll = m.getLatLng();
+        //map.flyTo(ll, 16, { duration: 0.5 });
+        map.panTo(11);
+        m.openPopup();
+        highlightResultRow(String(id));
+        return;
+      }
+      // No marker yet? Use the fallback coords (from data attributes)
+      if (fallbackLat != null && fallbackLng != null) {
+        const ll = L.latLng(fallbackLat, fallbackLng);
+        map.flyTo(ll, 16, { duration: 0.5 });
+        highlightResultRow(String(id));
+      }
+    }
+    window.focusPlaceById = focusPlaceById; // (optional) expose for debugging
+
+    // Delegate clicks from the result list
+    const resultsEl = document.getElementById('results');
+
+    resultsEl.addEventListener('click', (e) => {
+      const row = e.target.closest('.result-row');
+      if (!row) return;
+      const id = row.dataset.id;
+      const lat = parseFloat(row.dataset.lat);
+      const lng = parseFloat(row.dataset.lng);
+      focusPlaceById(id, lat, lng);
+    });
+
+    resultsEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = e.target.closest('.result-row');
+      if (!row) return;
+      e.preventDefault();
+      const id = row.dataset.id;
+      const lat = parseFloat(row.dataset.lat);
+      const lng = parseFloat(row.dataset.lng);
+      focusPlaceById(id, lat, lng);
+    });
+
+
 
     // wire buttons
     btnFilters.addEventListener('click', () => setMode('filters'));

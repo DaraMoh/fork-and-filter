@@ -1,31 +1,50 @@
-<div id="results" class="space-y-3">
+<div id="results" class="space-y-3" data-page="{{ page }}" data-per-page="{{ per_page }}">
+  {% if total and page == 1 %}
+    <div class="text-sm opacity-60">Showing {{ count }} of {{ total }}</div>
+  {% endif %}
+
   {% if count == 0 %}
-    <div class="p-4 rounded border bg-gray-50">
-      No matching restaurants. Try widening your radius or removing filters.
-    </div>
+    <div class="p-4 rounded border bg-gray-50">No matching restaurants. Try widening your radius or removing filters.</div>
   {% else %}
     {% for r in results %}
-      <div class="p-3 rounded border hover:shadow-sm transition flex items-start justify-between gap-3">
-        <div>
-          <div class="font-semibold">{{ r.name }}</div>
-          <div class="text-sm opacity-75">
-            {{ r.distance_km }} km |
-            {% if r.price == 1 %}$ {% elif r.price == 2 %}$$ {% elif r.price == 3 %}$$$ {% else %}-{% endif %}
-            | {{ r.busy }}
-            {% if r.halal %} | Halal{% endif %}
-          </div>
+      <div
+        class="result-row p-3 rounded border hover:shadow-sm transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-500"
+        data-id="{{ r.id }}"
+        data-lat="{{ r.lat }}"
+        data-lng="{{ r.lng }}"
+        role="button"
+        tabindex="0"
+        aria-label="Focus {{ r.name }} on map">
+
+        <div class="font-semibold">{{ r.name }}</div>
+        <div class="text-sm opacity-75">
+          {{ r.distance_km }} km |
+          {% if r.price == 1 %}$ {% elif r.price == 2 %}$$ {% elif r.price == 3 %}$$$ {% else %}-{% endif %}
+          | {{ r.busy }}{% if r.halal %} | Halal{% endif %}
         </div>
-        <!-- Optional: check-in button, remove if needed -->
-        <form
-          hx-post="/checkin"
-          hx-vals='{"restaurant_id":"{{ r.id }}"}'
-          hx-swap="none">
-          <button type="submit" class="px-2 py-1 bg-sky-600 text-white rounded text-sm">
-            I’m here
-          </button>
-        </form>
+        {% if r.description %}
+          <div class="text-sm mt-1">{{ r.description }}</div>
+        {% endif %}
+        {% if r.website %}
+          <a class="text-sm text-sky-700 underline mt-1 inline-block" href="{{ r.website }}" target="_blank" rel="noopener">Website</a>
+        {% endif %}
       </div>
     {% endfor %}
+  {% endif %}
+
+  {% if has_more %}
+    <div class="text-center mt-2">
+      <button
+        class="px-3 py-2 rounded bg-gray-900 text-white"
+        hx-get="/search"
+        hx-include="#filters"
+        hx-vals='{"page":"{{ page + 1 }}","per_page":"{{ per_page }}"}'
+        hx-target="#results"
+        hx-swap="outerHTML"
+        hx-indicator="#loading">
+        Load more results
+      </button>
+    </div>
   {% endif %}
 </div>
 
