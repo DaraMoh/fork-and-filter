@@ -1,4 +1,3 @@
-# app/__init__.py
 import os
 import click
 import time
