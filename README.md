@@ -3,18 +3,18 @@ A fast, map-first restaurant finder for the Dallas–Fort Worth area.
 Backend in Flask + SQLAlchemy, frontend in HTMX + Tailwind + Leaflet, packaged as a PWA you can install to your phone/desktop.
 
 ## Features
-🔎 Filters: menu terms (e.g., shawarma,tacos), price tier ($/$$/$$$), halal-only, radius.
-🗺️ Map UI: Leaflet map with Voyager tiles; click any result to zoom + open its popup.
-📍 Geolocation: “Use my location” sets center and radius ring; persists to localStorage.
-📥 Data sources: OpenStreetMap / Overpass enrichment (triggered via “Load more nearby”) with de-dupe + upsert.
-📦 PWA: installable, offline fallback page, service worker caching.
-⚡ Snappy UX: HTMX partials, paging (page, per_page), and right-hand drawer with a vertical tab.
+- 🔎 Filters: menu terms (e.g., shawarma,tacos), price tier ($/$$/$$$), halal-only, radius.
+- 🗺️ Map UI: Leaflet map with Voyager tiles; click any result to zoom + open its popup.
+- 📍 Geolocation: “Use my location” sets center and radius ring; persists to localStorage.
+- 📥 Data sources: OpenStreetMap / Overpass enrichment (triggered via “Load more nearby”) with de-dupe + upsert.
+- 📦 PWA: installable, offline fallback page, service worker caching.
+- ⚡ Snappy UX: HTMX partials, paging (page, per_page), and right-hand drawer with a vertical tab.
 
 ## Tech Stack
-Backend: Python, Flask, Flask-SQLAlchemy, Click, requests, python-dotenv
-DB: SQLite (local) via SQLAlchemy (works with Postgres via DATABASE_URL)
-Frontend: HTMX, Tailwind (CDN), Leaflet
-PWA: manifest.json, service worker (static/sw.js)
+- Backend: Python, Flask, Flask-SQLAlchemy, Click, requests, python-dotenv
+- DB: SQLite (local) via SQLAlchemy (works with Postgres via DATABASE_URL if desired)
+- Frontend: HTMX, Tailwind (CDN), Leaflet
+- PWA: manifest.json, service worker (static/sw.js)
 
 ## Getting Started
 ### 1) Create and activate venv
@@ -72,6 +72,6 @@ Open http://localhost:5000 and allow location!
 - Full integration of Foursquare API
 
 ## Acknowledgements
-Map data © OpenStreetMap contributors
-Tiles © CARTO (Voyager)
-Thanks to the Foursquare and Overpass communities for their APIs
+- Map data © OpenStreetMap contributors
+- Tiles © CARTO (Voyager)
+- Thanks to the Foursquare and Overpass communities for their APIs
